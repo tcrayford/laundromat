@@ -64,11 +64,35 @@
       (gen/tuple (gen/return transition-name)
                  (or (get-in transitions [transition-name :args]) (gen/return []))))))
 
+(defn preconditions-all-satisfied? [transitions commands]
+  (loop [current-command (first commands)
+         remaining (rest commands)
+         symbolic-state ((get-in transitions [:initial-state :initial]))]
+    (if current-command
+      (let [[command-name args] current-command
+            [precondition-result precondition-success]
+            (try [::success ((get-in transitions [command-name :precondition] (constantly true)) symbolic-state args)]
+              (catch Exception e
+                [::failure e]))]
+        (if (and (= precondition-result ::success) precondition-success)
+          (let [[symbolic-result-type resulting-symbolic]
+                (try [::success ((get-in transitions [command-name :next] (constantly true)) symbolic-state args)]
+                  (catch Exception e
+                    [::failure e]))]
+            (if (= symbolic-result-type ::success)
+              (recur
+                (first remaining)
+                (rest remaining)
+                resulting-symbolic)
+              false))
+          false))
+      true)))
+
 (defn generate-commands
   "generates commands from a transitions map"
   [transitions]
-  ;;TODO: have to check preconditions here
-  (gen/list (gen-transition transitions)))
+  (gen/such-that #(preconditions-all-satisfied? transitions %)
+                 (gen/list (gen-transition transitions))))
 
 
 (defn run-state-machine [transitions]
