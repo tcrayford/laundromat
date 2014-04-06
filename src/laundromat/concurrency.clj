@@ -1,7 +1,15 @@
 (ns laundromat.concurrency
-  (:require [clojure.test.check.generators :as gen]
+  (:require [clojure.core.memoize :as memo]
+            [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
-            [laundromat.core :refer :all]))
+            [laundromat.core :refer :all]
+            [clojure.math.combinatorics :as combinatorics]))
+
+(defmacro debug [thing & messages]
+  `(let [x# ~thing]
+     (.println *out* (str "DEBUG: " (str '~thing " " ~*file* ":" ~(:line (meta &form)) " is " (pr-str ~thing) " " (if (nil? ~thing) "nil" (class ~thing))) ~@messages))
+     (flush)
+     ~thing))
 
 (defmacro meh [expr]
   `(try
@@ -13,9 +21,37 @@
   (gen/gen-pure
     [false [(gen/rose-pure true)]]))
 
-(defn run-command-concurrently [transitions [command-name args] symbolic-state actual-state]
+(defn take-until [x xs]
+  (reverse (drop-while #(not (= x %)) (reverse xs))))
+
+(defn run-the-model [commands transitions]
+  (reduce
+    (fn [current-model-state [command-name args :as foo]]
+      ((get-in transitions [command-name :next]) current-model-state args))
+    ((get-in transitions [:initial-state :initial]))
+    commands))
+
+(defn check-permutations [workers-commands failing-command transitions resulting-actual]
+  (->> (combinatorics/permutations (apply concat (vals workers-commands)))
+    (map
+      (memo/lu
+        (fn [permuted-commands]
+          (meh
+            ((get-in transitions [(first failing-command) :postcondition] (constantly true))
+               resulting-actual
+               (run-the-model permuted-commands transitions)
+               (last (last permuted-commands)))))
+        :lu/threshold 1000))
+
+    (some
+      (fn [result]
+        (= ::success (first result))))))
+
+(defn run-command-concurrently [transitions workers-commands [command-name args :as current-command] symbolic-state actual-state run-commands]
   (let [[actual-result-type resulting-actual] (meh (apply (get-in transitions [command-name :command]) actual-state args))
-        [symbolic-result-type resulting-symbolic] (meh (swap! symbolic-state #((get-in transitions [command-name :next]) % args)))]
+        [symbolic-result-type [resulting-symbolic symbolic-run-commands]] (meh (dosync
+                                                                                 [(alter symbolic-state #((get-in transitions [command-name :next]) % args))
+                                                                                  (alter run-commands conj current-command)]))]
     (if (and (= actual-result-type ::success) (= symbolic-result-type ::success))
       (let [[postcondition-success postcondition-result]
             (meh ((get-in transitions [command-name :postcondition] (constantly true)) resulting-actual resulting-symbolic args))]
@@ -23,9 +59,13 @@
           {:symbolic-state resulting-symbolic
            :result resulting-actual
            :success true}
-          (do
-            (.println *out* (str postcondition-result))
-            {:failure (str "postcondition failed " postcondition-success " " postcondition-result)})))
+          {:failure (str "postcondition failed " postcondition-success " " postcondition-result)
+           :current-command current-command
+           :symbolic-state resulting-symbolic
+           :actual-result resulting-actual
+           :run-commands symbolic-run-commands
+           :permutation-checker (fn []
+                                  (check-permutations workers-commands current-command transitions resulting-actual))}))
       {:failure [actual-result-type resulting-actual symbolic-result-type resulting-symbolic args]})))
 
 (defn my-deliver [finished worker-id x test-run-n]
@@ -35,29 +75,29 @@
 
 (defn run-worker [test-run-n worker-id workers-commands transitions symbolic-state actual-state finished]
   (future
-    (try
-      (reduce
-        (fn [{is-finished :finished result :result :as r} current-command]
-          (if is-finished
-            r
-            (let [result (run-command-concurrently transitions current-command symbolic-state actual-state)]
-              (if (:success result)
-                (assoc r :result nil)
-                (do
-                  (.println *out* (str result " " test-run-n))
-                  (my-deliver finished worker-id result test-run-n)
-                  (assoc r :finished true))))))
-        {:finished false}
-        (workers-commands worker-id))
+    (let [run-commands (ref [])]
+      (try
+        (reduce
+          (fn [{is-finished :finished result :result :as r} current-command]
+            (if is-finished
+              r
+              (let [result (run-command-concurrently transitions workers-commands current-command symbolic-state actual-state run-commands)]
+                (if (:success result)
+                  (assoc r :result result)
+                  (do
+                    (my-deliver finished worker-id result test-run-n)
+                    (assoc r :finished true))))))
+          {:finished false}
+          (workers-commands worker-id))
         (my-deliver finished worker-id true test-run-n)
-      (catch Exception e
-        (.printStackTrace e)
-        (my-deliver finished worker-id e test-run-n)))))
+        (catch Throwable e
+          (.printStackTrace e)
+          (my-deliver finished worker-id e test-run-n))))))
 
 (defn run-and-check-commands-concurrently [workers-commands transitions concurrency]
   (let [test-run-n      (swap! test-run-count inc)
         finished        (into [] (map (fn [_] (promise)) (range concurrency)))
-        symbolic-state  (atom ((get-in transitions [:initial-state :initial])))
+        symbolic-state  (ref ((get-in transitions [:initial-state :initial])))
         actual-state    ((get-in transitions [:initial-state :subject]))]
     (dotimes [worker-id concurrency]
       (run-worker test-run-n worker-id workers-commands transitions symbolic-state actual-state finished))
@@ -69,7 +109,10 @@
               r
               (if (isa? Exception r)
                 (throw r)
-                (assert false r)))))
+                (if-let [checker (:permutation-checker r)]
+                  (if (checker)
+                    true
+                    (assert false r)))))))
         finished
         (range concurrency)))
     true))
@@ -114,11 +157,19 @@
         (apply gen/hash-map
                (apply concat
                       (map (fn [n]
-                             [n (generate-commands transitions)])
+                             [n
+                              (gen/fmap
+                                (fn [commands]
+                                  (map
+                                    (fn [[command-name args] command-sequence-number]
+                                      [command-name args {:worker-id n :command-seq command-sequence-number}])
+                                    commands
+                                    (iterate inc 0)))
+                                (generate-commands transitions))])
                            (range concurrency))))))))
 
 (defn run-state-machine-concurrent
-  ([transitions] (run-state-machine-concurrent transitions (gen/choose 1 (.. Runtime getRuntime availableProcessors))))
+  ([transitions] (run-state-machine-concurrent transitions (gen/choose 1 2)))
   ([transitions concurrency-gen]
    (prop/for-all [workers-commands (generate-worker-commands transitions concurrency-gen)
                   is-shrinking shrinking-sentinel]

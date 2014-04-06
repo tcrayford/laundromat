@@ -3,8 +3,6 @@
             [clojure.test.check.properties :as prop])
   (:import java.util.concurrent.LinkedBlockingQueue))
 
-;; infrastructure
-
 ;; run
 
 (defn run-command [transitions [command-name args] symbolic-state actual-state]
@@ -79,7 +77,7 @@
   "generates commands from a transitions map"
   [transitions]
   (gen/such-that #(preconditions-all-satisfied? transitions %)
-                 (gen/vector (gen-transition transitions) 0 16)))
+                 (gen/vector (gen-transition transitions) 0 4)))
 
 (defn run-state-machine [transitions]
   (prop/for-all [commands (generate-commands transitions)]
