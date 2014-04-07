@@ -7,23 +7,33 @@
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]))
 
+(defprotocol Ticker
+  (take-ticker! [ticker amount])
+  (reset-ticker! [ticker]))
 
-(defn empty-ticker! [] (atom 0))
+(deftype RacyTicker [^{:unsynchronized-mutable true} ticker]
+  Ticker
+  (take-ticker! [this amount]
+    (let [r ticker]
+      (set! ticker (+ r amount))
+      (+ r amount)))
 
-(defn take-ticker! [ticker amount]
-  #_(let [r (deref ticker)]
-    (reset! ticker (+ r amount))
-    (+ r amount))
+  (reset-ticker! [this]
+    (set! ticker 0)))
 
-  ;; currently, no race condition (in theory ;))
-  (swap! ticker (fn [original] (+ original amount))))
+(deftype AtomicTicker [ticker]
+  Ticker
+  (take-ticker! [this amount]
+    (swap! ticker #(+ % amount)))
+  (reset-ticker! [this]
+    (reset! ticker 0)))
 
-(defn reset-ticker! [ticker]
-  (reset! ticker 0))
+(defn broken-ticker [] (RacyTicker. 0))
+(defn fixed-ticker [] (AtomicTicker. (atom 0)))
 
 (def ticker-machine
   {:initial-state  {:initial  (constantly 0)
-                    :subject  empty-ticker!}
+                    :subject  broken-ticker}
 
    :take-ticket  {:next  (fn  [previous-state args]
                            (+ previous-state (first args)))
@@ -37,37 +47,24 @@
    })
 
 (defspec state-machine-test
-  1000
+  100
   (run-state-machine-concurrent ticker-machine (gen/return 2)))
 
 (deftest run-the-model-test
-  (is (= 1
+  (is (= '(0 1)
          (run-the-model
            [[:inc []]]
            {:initial-state {:initial (constantly 0)}
             :inc {:next (fn [model-state args] (inc model-state))}}))))
 
-(deftest check-permutations-test
-  (is
-    (= true
-       (check-permutations
-         {0 [[:inc []]]
-          1 [[:inc []]]}
-         [:inc []]
-         {:initial-state {:initial (constantly 0)}
-          :inc {:next (fn [model-state args] (inc model-state))
-                :postcondition (fn [result state _]
-                                 (assert (= result state)))}}
-         2))))
-
-(defspec take-until-test
+(defspec take-until-is-always-a-prefix
   (prop/for-all [ys (gen/bind (gen/not-empty (gen/vector gen/int))
                               (fn [ys]
                                 (gen/hash-map :x (gen/return (rand-nth ys))
                                               :xs (gen/return ys))))]
                 (let [{x :x xs :xs} ys
                       result (take-until x xs)]
-                  (some
+                  (every?
                     (fn [[x y]]
                       (= x y))
                     (map vector
