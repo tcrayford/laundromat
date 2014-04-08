@@ -1,6 +1,7 @@
 (ns laundromat.core-test
   (:require [clojure.test :refer :all]
             [laundromat.core :refer :all]
+            [clojure.set :as set]
             [laundromat.concurrency :refer :all]
             [clojure.test.check.clojure-test :refer [defspec]]
             [clojure.test.check :as tc]
@@ -33,7 +34,7 @@
 
 (def ticker-machine
   {:initial-state  {:initial  (constantly 0)
-                    :subject  broken-ticker}
+                    :subject  fixed-ticker}
 
    :take-ticket  {:next  (fn  [previous-state args]
                            (+ previous-state (first args)))
@@ -48,14 +49,7 @@
 
 (defspec state-machine-test
   100
-  (run-state-machine-concurrent ticker-machine (gen/return 2)))
-
-(deftest run-the-model-test
-  (is (= '(0 1)
-         (run-the-model
-           [[:inc []]]
-           {:initial-state {:initial (constantly 0)}
-            :inc {:next (fn [model-state args] (inc model-state))}}))))
+  (run-state-machine-concurrent ticker-machine))
 
 (defspec take-until-is-always-a-prefix
   (prop/for-all [ys (gen/bind (gen/not-empty (gen/vector gen/int))
@@ -70,3 +64,48 @@
                     (map vector
                          xs
                          result)))))
+
+(defspec halve-always-concats-to-original-seq
+  (prop/for-all [ys (gen/not-empty (gen/vector gen/int))]
+                (assert
+                  (= ys
+                     (apply concat (halve ys)))
+                  (str
+                    "expected "
+                    (into []
+                          (apply concat (halve ys)))
+                    " to equal "
+                    ys))
+                true))
+
+(defspec halve-always-produces-two-seqs
+  (prop/for-all [ys (gen/not-empty (gen/vector gen/int))]
+                (assert
+                  (>= 2
+                     (count (halve ys)))
+                  (str
+                    "expected "
+                    (count (halve ys))
+                    " to be 2 >="))
+                true))
+
+(deftest interleavings-test
+  (testing "with two empty seqs, it is empty"
+    (is (= [[]]
+           (interleavings [[] []]))))
+  (testing "with one seq with one elem, has one interleaving"
+    (is (= [[1]]
+           (interleavings [[1]]))))
+
+  (testing "with two seqs with one elem, has interleavings"
+    (is (= [[1 2] [2 1]]
+           (interleavings [[1] [2]])))))
+
+(defspec interleavings-spec
+  ;; have to limit vector size here to make sure we don't take aaages
+  (prop/for-all [ys (gen/not-empty (gen/vector gen/int 2 15))]
+                (let [xs (into #{} ys)]
+                  (assert
+                    (every? #(empty? (set/difference % xs))
+                            (map #(into #{} %) (interleavings (halve xs)))))
+                  true)))
