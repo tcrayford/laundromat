@@ -43,8 +43,8 @@
                   :postcondition (fn [result state args]
                                    (assert (= result state) (str "expected ticket " result " to equal model " state)))}
 
-   ;:reset         {:next  (constantly 0)
-   ;                :command reset-ticker!}
+   :reset         {:next  (constantly 0)
+                   :command reset-ticker!}
    })
 
 (defspec state-machine-test
@@ -109,3 +109,13 @@
                     (every? #(empty? (set/difference % xs))
                             (map #(into #{} %) (interleavings (halve xs)))))
                   true)))
+
+(deftest shrink-concurrent-commands-test
+  (is (=
+        (shrink-concurrent-commands {:sequential [[:take-ticket [1]]] :concurrent [[[:take-ticket [1]]] [[:take-ticket [1]]]]})
+        '({:sequential ()
+           :concurrent [[[:take-ticket [1]]] [[:take-ticket [1]]]]}
+          {:sequential [[:take-ticket [1]]] :concurrent ()}
+          {:sequential [[:take-ticket [1]]] :concurrent ()}
+          {:sequential ([:take-ticket [1]] [:take-ticket [1]]) :concurrent ()}
+          {:sequential ([:take-ticket [1]] [:take-ticket [1]]) :concurrent ()}))))
