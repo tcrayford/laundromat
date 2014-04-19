@@ -1,7 +1,6 @@
 (ns laundromat.core
   (:require [clojure.test.check.generators :as gen]
-            [clojure.test.check.properties :as prop])
-  (:import java.util.concurrent.LinkedBlockingQueue))
+            [clojure.test.check.properties :as prop]))
 
 ;; run
 
