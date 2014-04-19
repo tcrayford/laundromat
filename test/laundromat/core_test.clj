@@ -44,12 +44,15 @@
                                    (assert (= result state) (str "expected ticket " result " to equal model " state)))}
 
    :reset         {:next  (constantly 0)
-                   :command reset-ticker!}
-   })
+                   :command reset-ticker!}})
 
 (defspec state-machine-test
   100
-  (run-state-machine-concurrent ticker-machine))
+  (run-state-machine ticker-machine))
+
+(defspec concurrent-state-machine-test
+  100
+  (run-state-machine ticker-machine))
 
 (defspec take-until-is-always-a-prefix
   (prop/for-all [ys (gen/bind (gen/not-empty (gen/vector gen/int))
