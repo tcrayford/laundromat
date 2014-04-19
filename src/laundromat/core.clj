@@ -5,16 +5,16 @@
 ;; run
 
 (defn run-command [transitions [command-name args] symbolic-state actual-state]
-  (let [[actual-result-type resulting-actual] (try [::success (apply (get-in transitions [command-name :command]) actual-state args)]
+  (let [[actual-result-type resulting-actual] (try [::success (apply (get-in transitions [command-name :actual/command]) actual-state args)]
                  (catch Exception e
                    [::failure e]))
-        [symbolic-result-type resulting-symbolic] (try [::success ((get-in transitions [command-name :next]) symbolic-state args)]
+        [symbolic-result-type resulting-symbolic] (try [::success ((get-in transitions [command-name :model/next]) symbolic-state args)]
                                                     (catch Exception e
                                                       [::failure e]))]
     (if (and (= actual-result-type ::success) (= symbolic-result-type ::success))
       (let [[postcondition-success postcondition-result]
             (try
-              [::success ((get-in transitions [command-name :postcondition] (constantly true)) resulting-actual resulting-symbolic args)]
+              [::success ((get-in transitions [command-name :postcondition] (constantly true)) resulting-actual actual-state resulting-symbolic args)]
               (catch Exception e
                 [::failure e]))]
         (if (= postcondition-success ::success)
@@ -27,8 +27,8 @@
 (defn run-and-check-commands [commands transitions]
   (loop [current-command (first commands)
          remaining (rest commands)
-         symbolic-state  ((get-in transitions [:initial-state :initial]))
-         actual-state    ((get-in transitions [:initial-state :subject]))]
+         symbolic-state  ((get-in transitions [:initial-state :model/initial]))
+         actual-state    ((get-in transitions [:initial-state :actual/initial]))]
     (if current-command
       (let [result (run-command transitions current-command symbolic-state actual-state)]
         (if (:success result)
@@ -51,7 +51,7 @@
 (defn preconditions-all-satisfied? [transitions commands]
   (loop [current-command (first commands)
          remaining (rest commands)
-         symbolic-state ((get-in transitions [:initial-state :initial]))]
+         symbolic-state ((get-in transitions [:initial-state :model/initial]))]
     (if current-command
       (let [[command-name args] current-command
             [precondition-result precondition-success]
@@ -60,7 +60,7 @@
                 [::failure e]))]
         (if (and (= precondition-result ::success) precondition-success)
           (let [[symbolic-result-type resulting-symbolic]
-                (try [::success ((get-in transitions [command-name :next] (constantly true)) symbolic-state args)]
+                (try [::success ((get-in transitions [command-name :model/next] (constantly true)) symbolic-state args)]
                   (catch Exception e
                     [::failure e]))]
             (if (= symbolic-result-type ::success)

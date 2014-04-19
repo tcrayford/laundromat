@@ -33,24 +33,20 @@
 (defn fixed-ticker [] (AtomicTicker. (atom 0)))
 
 (def ticker-machine
-  {:initial-state  {:initial  (constantly 0)
-                    :subject  fixed-ticker}
+  {:initial-state  {:model/initial   (constantly 0)
+                    :actual/initial  fixed-ticker}
 
-   :take-ticket  {:next  (fn  [previous-state args]
-                           (+ previous-state (first args)))
+   :take-ticket  {:model/next  (fn  [previous-state args]
+                                 (+ previous-state (first args)))
                   :args  (gen/tuple (gen/return 1))
-                  :command take-ticker!
-                  :postcondition (fn [result state args]
-                                   (assert (= result state) (str "expected ticket " result " to equal model " state)))}
+                  :actual/command take-ticker!
+                  :postcondition (fn [actual-result actual-state model-state args]
+                                   (assert (= actual-result model-state) (str "expected ticket " actual-result " to equal model " model-state)))}
 
-   :reset         {:next  (constantly 0)
-                   :command reset-ticker!}})
+   :reset         {:model/next  (constantly 0)
+                   :actual/command reset-ticker!}})
 
 (defspec state-machine-test
-  100
-  (run-state-machine ticker-machine))
-
-(defspec concurrent-state-machine-test
   100
   (run-state-machine ticker-machine))
 
