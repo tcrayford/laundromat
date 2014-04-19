@@ -82,7 +82,7 @@ Here's roughly what happens when you call that function:
 
 - a `test.check` generator turns the model into a sequence of commands (with arguments), using `gen/such-that` to ensure that preconditions are all satisfied
 - the runner initializes the state of the system under test
-- the runner loops over commands. For each one, it applies it to the real system, then the model, then checks the postcondition
+- the runner loops over commands. For each one, it applies it to the real system, then the model, then checks the postcondition (if there is one)
 
 If there's a failure, the usual `test.check` shrinking mechanisms kick in to shrink the generated command sequence.
 
@@ -95,7 +95,16 @@ However (and this is where you come in!): I'd *love* feedback on this api design
 - does the transition centric model make sense? I think it plays pretty well
   with the epochal time model that clojure embraces - the model is just a
   sequence of pure function calls.
-- are the names for the keys in each transition good? Can you think of better ones?
+- are the names for the keys in each transition good? Can you think of better
+  ones? I'm using namespaced keys here, because coming up with names that make
+  sense, and are different between the model and the SUT transition functions is
+  difficult
+
+## Remaining implementation work
+
+- Concurrent checker needs a *tonne* of work
+- Error messages are thrown around weirdly, so stack traces are pretty fucked
+- laundromat.core is just a sketch, and should be rewritten
 
 ## License
 
