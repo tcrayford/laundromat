@@ -100,6 +100,10 @@ However (and this is where you come in!): I'd *love* feedback on this api design
   sense, and are different between the model and the SUT transition functions is
   difficult
 
+## Where to put feedback
+
+For now, please drop stuff in github issues, or email me: tom@tcrayford.com
+
 ## Remaining implementation work
 
 - Concurrent checker needs a *tonne* of work
