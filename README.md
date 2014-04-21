@@ -69,7 +69,8 @@ brief walk through each key:
                       results in a correct transition. This should throw an exception to represent failure.
 
 Later on, I'll likely add a `:weight` key that lets you weight how often
-commands are generated, but that's not really useful here.
+commands are generated, but that's not really useful for discussing api design
+in my book.
 
 After you've written a state machine specification, you can test it using `test.check` and a function from laundromat:
 
