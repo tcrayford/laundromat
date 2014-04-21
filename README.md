@@ -56,7 +56,7 @@ are just maps, with each key representing a potential transition:
                   :actual/command (fn [ticker] (reset! ticker 0))}})
 ```
 
-`:initial-key` represents the initial state of the system, before any commands are
+`:initial-state` represents the initial state of the system, before any commands are
 
 Each transition itself is created by a map with various elements. Here's a
 brief walk through each key:
